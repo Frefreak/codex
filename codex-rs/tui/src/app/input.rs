@@ -246,6 +246,17 @@ impl App {
             return;
         }
 
+        if app_keymap_shortcuts_available
+            && self
+                .keymap
+                .app
+                .cycle_permission_profile
+                .is_pressed(key_event)
+        {
+            self.cycle_permission_profile().await;
+            return;
+        }
+
         if app_keymap_shortcuts_available && self.keymap.app.toggle_raw_output.is_pressed(key_event)
         {
             let enabled = !self.chat_widget.raw_output_mode();

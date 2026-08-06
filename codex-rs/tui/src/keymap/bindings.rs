@@ -217,6 +217,7 @@ define_runtime_action_bindings! {
         clear_terminal,
         toggle_vim_mode,
         toggle_fast_mode,
+        cycle_permission_profile,
         toggle_raw_output,
         toggle_side_conversation,
     ],

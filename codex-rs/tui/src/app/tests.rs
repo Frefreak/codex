@@ -5,6 +5,8 @@ mod advanced_reasoning_tests;
 #[path = "tests/key_chords.rs"]
 mod key_chords;
 mod model_catalog;
+#[path = "tests/permission_profile_cycle.rs"]
+mod permission_profile_cycle;
 mod plugin_catalog;
 mod rate_limits;
 mod safety_buffering;

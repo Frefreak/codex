@@ -92,6 +92,40 @@ impl App {
         .await
     }
 
+    pub(super) async fn cycle_permission_profile(&mut self) -> bool {
+        let active_profile_id = self
+            .config
+            .permissions
+            .active_permission_profile()
+            .map(|profile| profile.id);
+        let allowed_profiles = self
+            .config
+            .custom_permission_profiles
+            .iter()
+            .filter(|profile| profile.allowed)
+            .collect::<Vec<_>>();
+        if allowed_profiles.len() < 2 {
+            return false;
+        }
+
+        let next_index = active_profile_id
+            .as_deref()
+            .and_then(|active_profile_id| {
+                allowed_profiles
+                    .iter()
+                    .position(|profile| profile.id == active_profile_id)
+            })
+            .map_or(0, |index| (index + 1) % allowed_profiles.len());
+        let profile_id = allowed_profiles[next_index].id.clone();
+        self.apply_permission_profile_selection(PermissionProfileSelection {
+            profile_id: profile_id.clone(),
+            approval_policy: None,
+            approvals_reviewer: None,
+            display_label: profile_id,
+        })
+        .await
+    }
+
     #[cfg(target_os = "windows")]
     pub(super) async fn windows_setup_permissions(
         &self,

@@ -63,6 +63,7 @@ const KEYMAP_COMMON_ACTIONS: &[(&str, &str)] = &[
     ("editor", "insert_newline"),
     ("composer", "queue"),
     ("global", "toggle_fast_mode"),
+    ("global", "cycle_permission_profile"),
     ("global", "open_external_editor"),
     ("global", "copy"),
     ("global", "toggle_vim_mode"),

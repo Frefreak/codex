@@ -948,6 +948,7 @@ mod tests {
                 "Chat.interrupt_turn",
                 "Editor.insert_newline",
                 "Composer.queue",
+                "Global.cycle_permission_profile",
                 "Global.open_external_editor",
                 "Global.copy",
                 "Global.toggle_vim_mode",
@@ -1060,13 +1061,16 @@ mod tests {
         let params = build_keymap_picker_params(&runtime, &TuiKeymap::default());
         let unbound_tab = selection_tab(&params, KEYMAP_UNBOUND_TAB_ID);
 
-        assert_eq!(unbound_tab.items.len(), 2);
+        assert_eq!(unbound_tab.items.len(), 3);
         assert_eq!(unbound_tab.items[0].name, "Toggle Vim Mode");
         assert_eq!(unbound_tab.items[0].description.as_deref(), Some("unbound"));
         assert!(!unbound_tab.items[0].is_disabled);
-        assert_eq!(unbound_tab.items[1].name, "Kill Whole Line");
+        assert_eq!(unbound_tab.items[1].name, "Cycle Permission Profile");
         assert_eq!(unbound_tab.items[1].description.as_deref(), Some("unbound"));
         assert!(!unbound_tab.items[1].is_disabled);
+        assert_eq!(unbound_tab.items[2].name, "Kill Whole Line");
+        assert_eq!(unbound_tab.items[2].description.as_deref(), Some("unbound"));
+        assert!(!unbound_tab.items[2].is_disabled);
     }
 
     #[test]

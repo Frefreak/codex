@@ -86,6 +86,8 @@ pub(crate) struct AppKeymap {
     pub(crate) toggle_vim_mode: Vec<KeyBinding>,
     /// Toggle Fast mode.
     pub(crate) toggle_fast_mode: Vec<KeyBinding>,
+    /// Cycle through allowed named permission profiles.
+    pub(crate) cycle_permission_profile: Vec<KeyBinding>,
     /// Toggle raw scrollback mode for copy-friendly transcript selection.
     pub(crate) toggle_raw_output: Vec<KeyBinding>,
     /// Switch between a side conversation and its parent without closing either.
@@ -573,6 +575,11 @@ impl RuntimeKeymap {
                 &defaults.app.toggle_fast_mode,
                 "tui.keymap.global.toggle_fast_mode",
             )?,
+            cycle_permission_profile: resolve_bindings(
+                keymap.global.cycle_permission_profile.as_ref(),
+                &defaults.app.cycle_permission_profile,
+                "tui.keymap.global.cycle_permission_profile",
+            )?,
             toggle_raw_output: resolve_bindings(
                 keymap.global.toggle_raw_output.as_ref(),
                 &defaults.app.toggle_raw_output,
@@ -973,6 +980,10 @@ impl RuntimeKeymap {
                 app.toggle_fast_mode.as_slice(),
             ),
             (
+                keymap.global.cycle_permission_profile.as_ref(),
+                app.cycle_permission_profile.as_slice(),
+            ),
+            (
                 keymap.global.toggle_raw_output.as_ref(),
                 app.toggle_raw_output.as_slice(),
             ),
@@ -1101,6 +1112,7 @@ impl RuntimeKeymap {
                 clear_terminal: default_bindings![ctrl(KeyCode::Char('l'))],
                 toggle_vim_mode: default_bindings![],
                 toggle_fast_mode: default_bindings![],
+                cycle_permission_profile: default_bindings![],
                 toggle_raw_output: default_bindings![alt(KeyCode::Char('r'))],
                 toggle_side_conversation: default_bindings![ctrl(KeyCode::Char('/'))],
             },
@@ -1374,6 +1386,10 @@ impl RuntimeKeymap {
                 ("clear_terminal", self.app.clear_terminal.as_slice()),
                 ("toggle_vim_mode", self.app.toggle_vim_mode.as_slice()),
                 ("toggle_fast_mode", self.app.toggle_fast_mode.as_slice()),
+                (
+                    "cycle_permission_profile",
+                    self.app.cycle_permission_profile.as_slice(),
+                ),
                 ("toggle_raw_output", self.app.toggle_raw_output.as_slice()),
                 ("toggle_side_conversation", side_toggle_bindings.as_slice()),
                 ("chat.interrupt_turn", self.chat.interrupt_turn.as_slice()),
@@ -1418,6 +1434,10 @@ impl RuntimeKeymap {
                 ("clear_terminal", self.app.clear_terminal.as_slice()),
                 ("toggle_vim_mode", self.app.toggle_vim_mode.as_slice()),
                 ("toggle_fast_mode", self.app.toggle_fast_mode.as_slice()),
+                (
+                    "cycle_permission_profile",
+                    self.app.cycle_permission_profile.as_slice(),
+                ),
                 ("toggle_raw_output", self.app.toggle_raw_output.as_slice()),
                 ("toggle_side_conversation", side_toggle_bindings.as_slice()),
                 ("chat.interrupt_turn", self.chat.interrupt_turn.as_slice()),
@@ -1468,6 +1488,10 @@ impl RuntimeKeymap {
                 ("clear_terminal", self.app.clear_terminal.as_slice()),
                 ("toggle_vim_mode", self.app.toggle_vim_mode.as_slice()),
                 ("toggle_fast_mode", self.app.toggle_fast_mode.as_slice()),
+                (
+                    "cycle_permission_profile",
+                    self.app.cycle_permission_profile.as_slice(),
+                ),
                 ("toggle_raw_output", self.app.toggle_raw_output.as_slice()),
                 ("toggle_side_conversation", side_toggle_bindings.as_slice()),
             ],
@@ -1543,6 +1567,10 @@ impl RuntimeKeymap {
                 ("composer.submit", self.composer.submit.as_slice()),
                 ("toggle_vim_mode", self.app.toggle_vim_mode.as_slice()),
                 ("toggle_fast_mode", self.app.toggle_fast_mode.as_slice()),
+                (
+                    "cycle_permission_profile",
+                    self.app.cycle_permission_profile.as_slice(),
+                ),
                 ("toggle_raw_output", self.app.toggle_raw_output.as_slice()),
                 ("toggle_side_conversation", side_toggle_bindings.as_slice()),
                 (
@@ -2412,6 +2440,7 @@ mod tests {
             vec![key_hint::ctrl(KeyCode::Char('l'))]
         );
         assert_eq!(runtime.app.toggle_fast_mode, Vec::new());
+        assert_eq!(runtime.app.cycle_permission_profile, Vec::new());
         assert_eq!(
             runtime.chat.interrupt_turn,
             vec![key_hint::plain(KeyCode::Esc)]
@@ -2889,6 +2918,21 @@ mod tests {
         keymap.global.toggle_fast_mode = Some(one("ctrl-l"));
 
         expect_conflict(&keymap, "clear_terminal", "toggle_fast_mode");
+    }
+
+    #[test]
+    fn cycle_permission_profile_can_be_assigned_and_rejects_conflicts() {
+        let mut keymap = TuiKeymap::default();
+        keymap.global.cycle_permission_profile = Some(one("alt-p"));
+
+        let runtime = RuntimeKeymap::from_config(&keymap).expect("runtime keymap");
+        assert_eq!(
+            runtime.app.cycle_permission_profile,
+            vec![key_hint::alt(KeyCode::Char('p'))]
+        );
+
+        keymap.global.cycle_permission_profile = Some(one("ctrl-l"));
+        expect_conflict(&keymap, "clear_terminal", "cycle_permission_profile");
     }
 
     #[test]
