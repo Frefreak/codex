@@ -58,6 +58,7 @@ use codex_protocol::models::FunctionCallOutputBody;
 use codex_protocol::models::FunctionCallOutputContentItem;
 use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ImageDetail;
+use codex_protocol::models::NetworkPermissions;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::models::SandboxEnforcement;
 use codex_protocol::openai_models::ModelServiceTier;
@@ -8266,6 +8267,87 @@ async fn refreshed_mcp_binding_captures_current_approval_authority() {
         new_turn.config.permissions.approval_policy.value(),
         AskForApproval::Never
     );
+}
+
+#[tokio::test]
+async fn step_boundary_permission_refresh_preserves_turn_grants() {
+    let (session, old_turn, _rx) = make_session_and_context_with_rx().await;
+    session
+        .spawn_task(
+            Arc::clone(&old_turn),
+            Vec::new(),
+            NeverEndingTask {
+                kind: TaskKind::Regular,
+                listen_to_cancellation_token: true,
+            },
+        )
+        .await;
+
+    let environment_id = old_turn
+        .environments
+        .primary()
+        .expect("test turn should have a primary environment")
+        .environment_id
+        .clone();
+    let granted_permissions = AdditionalPermissionProfile {
+        network: Some(NetworkPermissions {
+            enabled: Some(true),
+        }),
+        file_system: None,
+    };
+    let turn_state = {
+        let active = session.active_turn.lock().await;
+        Arc::clone(
+            &active
+                .as_ref()
+                .expect("task should create an active turn")
+                .turn_state,
+        )
+    };
+    turn_state
+        .lock()
+        .await
+        .record_granted_permissions(&environment_id, granted_permissions.clone());
+
+    session
+        .update_settings(SessionSettingsUpdate {
+            approval_policy: Some(AskForApproval::Never),
+            approvals_reviewer: Some(ApprovalsReviewer::AutoReview),
+            permission_profile: Some(PermissionProfile::Disabled),
+            ..Default::default()
+        })
+        .await
+        .expect("permission settings should update");
+    let refreshed = session
+        .refresh_turn_permissions_at_step_boundary(Arc::clone(&old_turn))
+        .await;
+
+    assert!(!Arc::ptr_eq(&old_turn, &refreshed));
+    assert_eq!(refreshed.approval_policy(), AskForApproval::Never);
+    assert_eq!(
+        refreshed.config.approvals_reviewer,
+        ApprovalsReviewer::AutoReview
+    );
+    assert_eq!(refreshed.permission_profile(), PermissionProfile::Disabled);
+    {
+        let active = session.active_turn.lock().await;
+        let active = active.as_ref().expect("turn should remain active");
+        assert!(Arc::ptr_eq(&active.turn_state, &turn_state));
+        assert!(Arc::ptr_eq(
+            &active
+                .task
+                .as_ref()
+                .expect("task should remain active")
+                .turn_context,
+            &refreshed
+        ));
+    }
+    assert_eq!(
+        turn_state.lock().await.granted_permissions(&environment_id),
+        Some(granted_permissions)
+    );
+
+    session.abort_all_tasks(TurnAbortReason::Interrupted).await;
 }
 
 #[tokio::test]

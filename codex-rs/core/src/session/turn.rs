@@ -150,7 +150,7 @@ const POST_SAMPLING_TOKEN_ESTIMATE_TARGET: &str = "codex_core::post_sampling_tok
 ///
 pub(crate) async fn run_turn(
     sess: Arc<Session>,
-    turn_context: Arc<TurnContext>,
+    mut turn_context: Arc<TurnContext>,
     input: Vec<TurnInput>,
     prewarmed_client_session: Option<ModelClientSession>,
     cancellation_token: CancellationToken,
@@ -271,6 +271,14 @@ pub(crate) async fn run_turn(
 
     let mut next_step_context = Some(first_step_context);
     loop {
+        let refreshed_turn_context = sess
+            .refresh_turn_permissions_at_step_boundary(Arc::clone(&turn_context))
+            .await;
+        if !Arc::ptr_eq(&turn_context, &refreshed_turn_context) {
+            turn_context = refreshed_turn_context;
+            next_step_context = None;
+        }
+
         // Note that pending_input would be something like a message the user
         // submitted through the UI while the model was running. Though the UI
         // may support this, the model might not.

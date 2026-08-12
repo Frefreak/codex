@@ -255,6 +255,84 @@ impl TurnContext {
             && self.config.orchestrator_mcp_enabled
     }
 
+    pub(crate) fn permission_settings_match(
+        &self,
+        session_configuration: &SessionConfiguration,
+    ) -> bool {
+        self.config.permissions.approval_policy.value()
+            == session_configuration.approval_policy.value()
+            && self.config.approvals_reviewer == session_configuration.approvals_reviewer
+            && self.config.permissions.permission_profile_state()
+                == session_configuration.permission_profile_state()
+    }
+
+    pub(crate) fn with_permission_settings(
+        &self,
+        session_configuration: &SessionConfiguration,
+        network: Option<NetworkProxy>,
+    ) -> Self {
+        let mut config = (*self.config).clone();
+        config.permissions.approval_policy = session_configuration.approval_policy.clone();
+        config.approvals_reviewer = session_configuration.approvals_reviewer;
+        session_configuration.apply_permission_profile_to_permissions(&mut config.permissions);
+
+        let permission_profile = session_configuration.permission_profile();
+        self.turn_metadata_state.set_sandbox(
+            &permission_profile,
+            self.windows_sandbox_level,
+            network.is_some(),
+        );
+
+        Self {
+            sub_id: self.sub_id.clone(),
+            trace_id: self.trace_id.clone(),
+            realtime_active: self.realtime_active,
+            code_mode_available: self.code_mode_available,
+            config: Arc::new(config),
+            auth_manager: self.auth_manager.clone(),
+            model_info: self.model_info.clone(),
+            session_telemetry: self.session_telemetry.clone(),
+            provider: self.provider.clone(),
+            reasoning_effort: self.reasoning_effort.clone(),
+            reasoning_summary: self.reasoning_summary,
+            session_source: self.session_source.clone(),
+            history_mode: self.history_mode,
+            parent_thread_id: self.parent_thread_id,
+            originator: self.originator.clone(),
+            environments: self
+                .environments
+                .with_config(&session_configuration.environment_config()),
+            #[allow(deprecated)]
+            cwd: self.cwd.clone(),
+            current_date: self.current_date.clone(),
+            timezone: self.timezone.clone(),
+            app_server_client_name: self.app_server_client_name.clone(),
+            developer_instructions: self.developer_instructions.clone(),
+            mode: self.mode,
+            collaboration_mode_developer_instructions: self
+                .collaboration_mode_developer_instructions
+                .clone(),
+            multi_agent_version: self.multi_agent_version,
+            personality: self.personality,
+            network,
+            windows_sandbox_level: self.windows_sandbox_level,
+            available_models: self.available_models.clone(),
+            unified_exec_shell_mode: self.unified_exec_shell_mode.clone(),
+            final_output_json_schema: self.final_output_json_schema.clone(),
+            dynamic_tools: self.dynamic_tools.clone(),
+            turn_metadata_state: Arc::clone(&self.turn_metadata_state),
+            extension_data: Arc::clone(&self.extension_data),
+            turn_timing_state: Arc::clone(&self.turn_timing_state),
+            terminal_error: Arc::clone(&self.terminal_error),
+            server_model_warning_emitted: AtomicBool::new(
+                self.server_model_warning_emitted.load(Ordering::Relaxed),
+            ),
+            model_verification_emitted: AtomicBool::new(
+                self.model_verification_emitted.load(Ordering::Relaxed),
+            ),
+        }
+    }
+
     pub(crate) async fn with_model(
         &self,
         model: String,

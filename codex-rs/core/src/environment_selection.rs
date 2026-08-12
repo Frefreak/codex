@@ -424,6 +424,26 @@ pub(crate) struct TurnEnvironmentSnapshot {
 }
 
 impl TurnEnvironmentSnapshot {
+    pub(crate) fn with_config(&self, config: &EnvironmentConfig) -> Self {
+        let environments = self
+            .environments
+            .iter()
+            .map(|environment| match environment {
+                TurnEnvironmentState::Ready(environment) => {
+                    let mut environment = environment.clone();
+                    environment.config = config.clone();
+                    TurnEnvironmentState::Ready(environment)
+                }
+                TurnEnvironmentState::Starting(environment) => {
+                    let mut environment = environment.clone();
+                    environment.config = config.clone();
+                    TurnEnvironmentState::Starting(environment)
+                }
+            })
+            .collect();
+        Self { environments }
+    }
+
     /// Promotes completed startup work without adopting newer thread selections.
     pub(crate) fn refresh_readiness(&self) -> Self {
         let environments = self

@@ -1,11 +1,13 @@
 use anyhow::Result;
 use codex_config::ConfigLayerStack;
+use codex_config::types::ApprovalsReviewer;
 use codex_core::ForkSnapshot;
 use codex_core::config::Constrained;
 use codex_core::context::ApprovalPromptContext;
 use codex_core::context::ContextualUserFragment;
 use codex_core::context::PermissionsInstructions;
 use codex_core::load_exec_policy;
+use codex_features::Feature;
 use codex_models_manager::model_info::model_info_from_slug;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::openai_models::ApprovalMessages;
@@ -16,18 +18,27 @@ use codex_protocol::permissions::NetworkSandboxPolicy;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::Op;
+use codex_protocol::protocol::ThreadSettingsOverrides;
+use codex_protocol::request_user_input::RequestUserInputAnswer;
+use codex_protocol::request_user_input::RequestUserInputResponse;
 use codex_protocol::user_input::UserInput;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use core_test_support::responses::ResponsesRequest;
+use core_test_support::responses::ev_assistant_message;
 use core_test_support::responses::ev_completed;
+use core_test_support::responses::ev_function_call;
 use core_test_support::responses::ev_response_created;
 use core_test_support::responses::mount_sse_once;
+use core_test_support::responses::mount_sse_sequence;
 use core_test_support::responses::sse;
 use core_test_support::responses::start_mock_server;
 use core_test_support::skip_if_no_network;
 use core_test_support::test_codex::test_codex;
 use core_test_support::wait_for_event;
+use core_test_support::wait_for_event_match;
 use pretty_assertions::assert_eq;
+use serde_json::json;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use tempfile::TempDir;
 
@@ -96,6 +107,147 @@ async fn submit_text_turn(
         })
         .await?;
     wait_for_event(&test.codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn permission_settings_change_after_current_tool_batch() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let server = start_mock_server().await;
+    let responses = mount_sse_sequence(
+        &server,
+        vec![
+            sse(vec![
+                ev_response_created("resp-1"),
+                ev_function_call(
+                    "pause-turn",
+                    "request_user_input",
+                    &json!({
+                        "questions": [{
+                            "id": "continue",
+                            "header": "Continue",
+                            "question": "Continue after changing permissions?",
+                            "options": [{
+                                "label": "Yes (Recommended)",
+                                "description": "Continue the test."
+                            }, {
+                                "label": "No",
+                                "description": "Stop the test."
+                            }]
+                        }]
+                    })
+                    .to_string(),
+                ),
+                ev_completed("resp-1"),
+            ]),
+            sse(vec![
+                ev_response_created("resp-2"),
+                ev_assistant_message("msg-2", "done"),
+                ev_completed("resp-2"),
+            ]),
+        ],
+    )
+    .await;
+    let model_slug = "mid-turn-permissions-model";
+    let mut model = model_info_from_slug(model_slug);
+    model.model_messages = Some(ModelMessages {
+        instructions_template: None,
+        instructions_variables: None,
+        approvals: Some(ApprovalMessages {
+            on_request: Some("user-review approval marker".to_string()),
+            on_request_auto_review: Some("auto-review approval marker".to_string()),
+            never: Some("never approval marker".to_string()),
+            unless_trusted: None,
+        }),
+        collaboration_modes: None,
+        auto_review: None,
+        permissions: Some(PermissionMessages {
+            danger_full_access: Some("full-access permission marker".to_string()),
+            workspace_write: None,
+            read_only: Some("read-only permission marker".to_string()),
+        }),
+        token_budget: None,
+    });
+    let mut builder = test_codex()
+        .with_model(model_slug)
+        .with_config(move |config| {
+            assert!(
+                config
+                    .features
+                    .enable(Feature::DefaultModeRequestUserInput)
+                    .is_ok()
+            );
+            config.permissions.approval_policy = Constrained::allow_any(AskForApproval::Never);
+            config.approvals_reviewer = ApprovalsReviewer::User;
+            config
+                .permissions
+                .set_permission_profile(PermissionProfile::Disabled)
+                .expect("full-access permission profile should be allowed");
+            config.model_catalog = Some(ModelsResponse {
+                models: vec![model],
+            });
+        });
+    let test = builder.build_with_auto_env(&server).await?;
+
+    test.codex
+        .submit(Op::UserInput {
+            items: vec![UserInput::Text {
+                text: "pause before continuing".into(),
+                text_elements: Vec::new(),
+            }],
+            final_output_json_schema: None,
+            responsesapi_client_metadata: None,
+            additional_context: Default::default(),
+            thread_settings: Default::default(),
+        })
+        .await?;
+    let request = wait_for_event_match(&test.codex, |event| match event {
+        EventMsg::RequestUserInput(request) => Some(request.clone()),
+        _ => None,
+    })
+    .await;
+    core_test_support::submit_thread_settings(
+        &test.codex,
+        ThreadSettingsOverrides {
+            approval_policy: Some(AskForApproval::OnRequest),
+            approvals_reviewer: Some(ApprovalsReviewer::AutoReview),
+            permission_profile: Some(PermissionProfile::read_only()),
+            ..Default::default()
+        },
+    )
+    .await?;
+    test.codex
+        .submit(Op::UserInputAnswer {
+            id: request.turn_id,
+            response: RequestUserInputResponse {
+                answers: HashMap::from([(
+                    "continue".to_string(),
+                    RequestUserInputAnswer {
+                        answers: vec!["Yes (Recommended)".to_string()],
+                    },
+                )]),
+            },
+        })
+        .await?;
+    wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::TurnComplete(_))
+    })
+    .await;
+
+    let requests = responses.requests();
+    assert_eq!(requests.len(), 2);
+    let initial_permissions = permissions_texts(&requests[0]);
+    assert_eq!(initial_permissions.len(), 1);
+    assert!(initial_permissions[0].contains("never approval marker"));
+    assert!(initial_permissions[0].contains("full-access permission marker"));
+    let refreshed_permissions = permissions_texts(&requests[1]);
+    assert_eq!(refreshed_permissions.len(), 2);
+    let refreshed_permissions = refreshed_permissions
+        .last()
+        .expect("permission change should append refreshed instructions");
+    assert!(refreshed_permissions.contains("auto-review approval marker"));
+    assert!(refreshed_permissions.contains("read-only permission marker"));
     Ok(())
 }
 

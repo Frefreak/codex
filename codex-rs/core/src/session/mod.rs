@@ -2180,6 +2180,41 @@ impl Session {
             .map(|task| Arc::clone(&task.turn_context))
     }
 
+    pub(crate) async fn refresh_turn_permissions_at_step_boundary(
+        &self,
+        turn_context: Arc<TurnContext>,
+    ) -> Arc<TurnContext> {
+        let session_configuration = {
+            let state = self.state.lock().await;
+            state.session_configuration.clone()
+        };
+        if turn_context.permission_settings_match(&session_configuration) {
+            return turn_context;
+        }
+
+        let network = self
+            .services
+            .network_proxy
+            .load_full()
+            .as_ref()
+            .and_then(|started_proxy| {
+                Self::managed_network_proxy_active_for_permission_profile(
+                    &session_configuration.permission_profile(),
+                )
+                .then(|| started_proxy.proxy())
+            });
+        let refreshed =
+            Arc::new(turn_context.with_permission_settings(&session_configuration, network));
+
+        let mut active = self.active_turn.lock().await;
+        if let Some(task) = active.as_mut().and_then(|turn| turn.task.as_mut())
+            && task.turn_context.sub_id == turn_context.sub_id
+        {
+            task.turn_context = Arc::clone(&refreshed);
+        }
+        refreshed
+    }
+
     async fn active_turn_context_and_cancellation_token(
         &self,
     ) -> Option<(Arc<TurnContext>, CancellationToken)> {

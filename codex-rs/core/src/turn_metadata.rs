@@ -101,7 +101,7 @@ pub(crate) struct TurnMetadataState {
     subagent_kind: Option<String>,
     thread_source: Option<ThreadSource>,
     turn_id: String,
-    sandbox: Option<String>,
+    sandbox: RwLock<Option<String>>,
     enriched_workspaces: RwLock<Option<BTreeMap<String, TurnMetadataWorkspace>>>,
     code_mode_tool_names: RwLock<Option<BTreeMap<String, ToolName>>>,
     turn_started_at_unix_ms: RwLock<Option<i64>>,
@@ -146,7 +146,7 @@ impl TurnMetadataState {
             subagent_kind: subagent_metadata_kind(session_source),
             thread_source,
             turn_id,
-            sandbox,
+            sandbox: RwLock::new(sandbox),
             enriched_workspaces: RwLock::new(None),
             code_mode_tool_names: RwLock::new(None),
             turn_started_at_unix_ms: RwLock::new(None),
@@ -215,6 +215,26 @@ impl TurnMetadataState {
             .store(true, Ordering::Relaxed);
     }
 
+    pub(crate) fn set_sandbox(
+        &self,
+        permission_profile: &PermissionProfile,
+        windows_sandbox_level: WindowsSandboxLevel,
+        enforce_managed_network: bool,
+    ) {
+        let sandbox = Some(
+            permission_profile_sandbox_tag(
+                permission_profile,
+                windows_sandbox_level,
+                enforce_managed_network,
+            )
+            .to_string(),
+        );
+        *self
+            .sandbox
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = sandbox;
+    }
+
     pub(crate) fn set_code_mode_tool_names(
         &self,
         code_mode_tool_names: BTreeMap<String, ToolName>,
@@ -261,7 +281,11 @@ impl TurnMetadataState {
             subagent_header: self.subagent_header.clone(),
             subagent_kind: self.subagent_kind.clone(),
             thread_source: self.thread_source.clone(),
-            sandbox: self.sandbox.clone(),
+            sandbox: self
+                .sandbox
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone(),
             workspaces: self.current_workspaces(),
             code_mode_tool_names: self
                 .code_mode_tool_names
